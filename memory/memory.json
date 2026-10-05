@@ -1,0 +1,16 @@
+{
+  "facts": [
+    {
+      "text": "The user's name is Mayank",
+      "category": "personal"
+    },
+    {
+      "text": "Priya is the user's girlfriend",
+      "category": "personal"
+    },
+    {
+      "text": "The user is currently learning JavaScript",
+      "category": "skills"
+    }
+  ]
+}

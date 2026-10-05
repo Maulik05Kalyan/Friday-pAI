@@ -1,6 +1,60 @@
+import { useState } from "react";
 import "./App.css";
 
 function App() {
+  const [message, setMessage] = useState("");
+  const [messages, setMessages] = useState([]);
+  const [thinking, setThinking] = useState(false);
+
+  async function sendMessage() {
+    const text = message.trim();
+
+    if (!text || thinking) return;
+
+    // Add user's message to the chat
+    const userMessage = {
+      role: "user",
+      content: text,
+    };
+
+    const updatedMessages = [...messages, userMessage];
+
+    setMessages(updatedMessages);
+    setMessage("");
+    setThinking(true);
+
+    try {
+      // Send conversation to Electron → NVIDIA → Nemotron
+      const reply = await window.electronAPI.askAI(updatedMessages);
+
+      const aiMessage = {
+        role: "assistant",
+        content: reply,
+      };
+
+      setMessages([...updatedMessages, aiMessage]);
+    } catch (error) {
+      console.error(error);
+
+      setMessages([
+        ...updatedMessages,
+        {
+          role: "assistant",
+          content:
+            "Sorry, I couldn't connect to the AI right now.",
+        },
+      ]);
+    } finally {
+      setThinking(false);
+    }
+  }
+
+  function handleKeyDown(event) {
+    if (event.key === "Enter") {
+      sendMessage();
+    }
+  }
+
   return (
     <div className="assistant">
 
@@ -22,20 +76,51 @@ function App() {
 
         <div className="hero-content">
 
-          <p className="greeting">
-            YOUR PERSONAL ASSISTANT
-          </p>
+          {messages.length === 0 ? (
+            <>
+              <p className="greeting">
+                YOUR PERSONAL ASSISTANT
+              </p>
 
-          <h1>
-            How can I
-            <br />
-            <span>help you today?</span>
-          </h1>
+              <h1>
+                How can I
+                <br />
+                <span>help you today?</span>
+              </h1>
 
-          <p className="description">
-            Ask me anything, get things done, or just
-            have a conversation.
-          </p>
+              <p className="description">
+                Ask me anything, get things done, or just
+                have a conversation.
+              </p>
+            </>
+          ) : (
+            <div className="chat-container">
+
+              <div className="messages">
+
+                {messages.map((msg, index) => (
+                  <div
+                    key={index}
+                    className={`chat-message ${
+                      msg.role === "user"
+                        ? "user"
+                        : "ai"
+                    }`}
+                  >
+                    {msg.content}
+                  </div>
+                ))}
+
+                {thinking && (
+                  <div className="chat-message ai">
+                    Thinking...
+                  </div>
+                )}
+
+              </div>
+
+            </div>
+          )}
 
           {/* AI visual */}
           <div className="ai-visual">
@@ -58,6 +143,12 @@ function App() {
               <input
                 type="text"
                 placeholder="Ask your personal AI..."
+                value={message}
+                onChange={(event) =>
+                  setMessage(event.target.value)
+                }
+                onKeyDown={handleKeyDown}
+                disabled={thinking}
               />
 
               <div className="prompt-actions">
@@ -66,7 +157,11 @@ function App() {
                   <span>⌁</span>
                 </button>
 
-                <button className="send-button">
+                <button
+                  className="send-button"
+                  onClick={sendMessage}
+                  disabled={thinking}
+                >
                   ↑
                 </button>
 
@@ -76,7 +171,10 @@ function App() {
 
             <div className="prompt-footer">
               <span>Press Enter to send</span>
-              <span>● AI ready</span>
+
+              <span>
+                ● {thinking ? "Thinking..." : "AI ready"}
+              </span>
             </div>
 
           </div>

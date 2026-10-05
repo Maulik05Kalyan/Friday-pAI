@@ -1,5 +1,5 @@
-const { contextBridge } = require("electron");
+const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("electronAPI", {
-  // We'll add our desktop APIs here later
+  askAI: (messages) => ipcRenderer.invoke("ask-ai", messages),
 });

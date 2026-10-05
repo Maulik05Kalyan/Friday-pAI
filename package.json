@@ -5,10 +5,11 @@
   "main": "electron/main.cjs",
   "type": "module",
   "scripts": {
-  "dev": "vite",
-  "electron": "electron ."
-},
+    "dev": "vite",
+    "electron": "electron ."
+  },
   "dependencies": {
+    "dotenv": "^18.0.5",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },

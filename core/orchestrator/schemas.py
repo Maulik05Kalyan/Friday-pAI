@@ -11,9 +11,9 @@ Memory operations are represented as a constrained string on each
 TaskStep, allowing the executor to distinguish semantic operations
 without conditional branching on capability names.
 """
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # ---------------------------------------------------------------------------
@@ -73,3 +73,24 @@ class TaskPlan(BaseModel):
     requires_memory: bool
     requires_tools: bool
     steps: list[TaskStep]
+
+    @field_validator("assumptions", mode="before")
+    @classmethod
+    def normalise_assumptions(cls, v: Any) -> Any:
+        """
+        Coerce common LLM-output sentinel values into an empty list.
+
+        LLMs sometimes produce:
+          "assumptions": "none"   — a string meaning "no assumptions"
+          "assumptions": null     — JSON null (Python None)
+          "assumptions": ""       — empty string
+
+        All three are equivalent to "no assumptions" and are normalised
+        to [] before Pydantic enforces the list[str] type.  Valid lists
+        (including []) pass through unchanged.
+        """
+        if v is None:
+            return []
+        if isinstance(v, str):
+            return [] if v.strip().lower() in {"none", "null", "n/a", ""} else [v]
+        return v

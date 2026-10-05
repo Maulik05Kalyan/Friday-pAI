@@ -102,29 +102,45 @@ def test_executor_detects_blocked_dependencies():
 
 
 def test_execution_state_tracks_completed_steps():
+    # The test verifies execution STATE tracking, not LLM connectivity.
+    # Patch CAPABILITIES with a no-op handler (same pattern as
+    # test_executor_respects_dependencies) so the step succeeds without
+    # requiring a live local model server.
+    from core.orchestrator import executor as executor_module
 
-    plan = TaskPlan(
-        goal="test state",
-        intent="knowledge_query",
-        complexity="simple",
-        requires_memory=False,
-        requires_tools=False,
-        steps=[
-            {
-                "id": "step_1",
-                "capability": "knowledge",
-                "memory_operation": "none",
-                "purpose": "test",
-                "depends_on": [],
-            }
-        ],
-    )
+    original_capabilities = executor_module.CAPABILITIES
 
-    executor = Executor()
-    result = executor.execute(plan, "test")
+    def noop_handler(step, user_message):
+        return "ok"
 
-    assert result.success is True
-    assert executor.state.status == "completed"
-    assert executor.state.current_step is None
-    assert executor.state.completed_steps == ["step_1"]
-    assert executor.state.failed_steps == []
+    executor_module.CAPABILITIES = {"knowledge": noop_handler}
+
+    try:
+        plan = TaskPlan(
+            goal="test state",
+            intent="knowledge_query",
+            complexity="simple",
+            requires_memory=False,
+            requires_tools=False,
+            steps=[
+                {
+                    "id": "step_1",
+                    "capability": "knowledge",
+                    "memory_operation": "none",
+                    "purpose": "test",
+                    "depends_on": [],
+                }
+            ],
+        )
+
+        executor = Executor()
+        result = executor.execute(plan, "test")
+
+        assert result.success is True
+        assert executor.state.status == "completed"
+        assert executor.state.current_step is None
+        assert executor.state.completed_steps == ["step_1"]
+        assert executor.state.failed_steps == []
+
+    finally:
+        executor_module.CAPABILITIES = original_capabilities

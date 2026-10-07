@@ -1,111 +1,131 @@
-:root {
-  --text: #6b6375;
-  --text-h: #08060d;
-  --bg: #fff;
-  --border: #e5e4e7;
-  --code-bg: #f4f3ec;
-  --accent: #aa3bff;
-  --accent-bg: rgba(170, 59, 255, 0.1);
-  --accent-border: rgba(170, 59, 255, 0.5);
-  --social-bg: rgba(244, 243, 236, 0.5);
-  --shadow:
-    rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
+/* =========================================================
+   index.css : theme colours + global resets
+   Dark mode  = real dark (near-black, neutral, easy on eyes)
+   Light mode = soft warm white (not harsh pure white)
+   ========================================================= */
 
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --mono: ui-monospace, Consolas, monospace;
+/* ---------- DARK ---------- */
+:root,
+html[data-theme="dark"] {
+  color-scheme: dark;
 
-  font: 18px/145% var(--sans);
-  letter-spacing: 0.18px;
-  color-scheme: light dark;
-  color: var(--text);
-  background: var(--bg);
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  --bg: #0e0f12;            /* chat area */
+  --sidebar-bg: #121317;    /* sidebar, slightly different so the split is clear */
+  --surface: #262729;       /* cards, composer, modals */
+  --surface-2: #5a698b;     /* hover states */
 
-  @media (max-width: 1024px) {
-    font-size: 16px;
-  }
+  --border: #1d2d5e;
+  --border-strong: #058532;
+
+  --text: #ececf0;
+  --text-2: #a3a7b5;
+  --text-3: #727787;
+
+  --accent: #4c6c7c;
+  --accent-2: #3fd8c8;
+  --on-accent: #1a1408;
+
+  --user-bubble: #9b0058;
+  --user-text: #1a1408;
+  --ai-bubble: #4d149875;
+
+  --header-bg: rgba(2, 2, 3, 0.85);
+  --danger: #cd2026;
+  --hl-bg: #606017;
+  --shadow: 0 20px 50px -24px rgba(0, 0, 0, 0.9);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --text: #9ca3af;
-    --text-h: #f3f4f6;
-    --bg: #16171d;
-    --border: #2e303a;
-    --code-bg: #1f2028;
-    --accent: #c084fc;
-    --accent-bg: rgba(192, 132, 252, 0.15);
-    --accent-border: rgba(192, 132, 252, 0.5);
-    --social-bg: rgba(47, 48, 58, 0.5);
-    --shadow:
-      rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
-  }
+/* ---------- LIGHT ---------- */
+html[data-theme="light"] {
+  color-scheme: light;
 
-  #social .button-icon {
-    filter: invert(1) brightness(2);
-  }
+  --bg: #faf9f6;
+  --sidebar-bg: #f1efe9;
+  --surface: #ffffffed;
+  --surface-2: #ebe8e0;
+
+  --border: #001f7b;
+  --border-strong: #2791a6;
+
+  --text: #0e0e0f;
+  --text-2: #5e0404;
+  --text-3: #7a7c88;
+
+  --accent: #020a0e;
+  --accent-2: #7469beca;
+  --on-accent: #efefef;
+
+  --user-bubble: #cbcfd1;
+  --user-text: #0d0d0d;
+  --ai-bubble: #878b8b;
+
+  --header-bg: rgba(204, 200, 200, 0.471);
+  --danger: #d23c3c;
+  --hl-bg: #ffe08a;
+  --shadow: 0 20px 50px -28px rgba(40, 30, 10, 0.35);
+}
+
+/* ---------- GLOBAL ---------- */
+:root {
+  --sans: "Inter", system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
 }
 
 body {
   margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
 }
 
 #root {
-  width: 1126px;
-  max-width: 100%;
-  margin: 0 auto;
-  text-align: center;
-  border-inline: 1px solid var(--border);
-  min-height: 100svh;
   display: flex;
   flex-direction: column;
-  box-sizing: border-box;
+  min-height: 0;
 }
 
-h1,
-h2 {
-  font-family: var(--heading);
-  font-weight: 500;
-  color: var(--text-h);
-}
-
-h1 {
-  font-size: 56px;
-  letter-spacing: -1.68px;
-  margin: 32px 0;
-  @media (max-width: 1024px) {
-    font-size: 36px;
-    margin: 20px 0;
-  }
-}
-h2 {
-  font-size: 24px;
-  line-height: 118%;
-  letter-spacing: -0.24px;
-  margin: 0 0 8px;
-  @media (max-width: 1024px) {
-    font-size: 20px;
-  }
-}
-p {
+h1, h2, h3, h4, p {
   margin: 0;
 }
 
-code,
-.counter {
-  font-family: var(--mono);
-  display: inline-flex;
-  border-radius: 4px;
-  color: var(--text-h);
+button, input, textarea, select {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
 }
 
-code {
-  font-size: 15px;
-  line-height: 135%;
-  padding: 4px 8px;
-  background: var(--code-bg);
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent-2);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent-2) 40%, transparent);
+}
+
+/* thin, quiet scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
 }

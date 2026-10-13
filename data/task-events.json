@@ -1,0 +1,9 @@
+[
+  {
+    "timestamp": "2026-10-12T15:37:48.886Z",
+    "type": "test_event",
+    "workflowId": "research-study",
+    "runId": "efba5a72-4be3-471c-a1c6-3e1579c86115",
+    "stepId": "search"
+  }
+]

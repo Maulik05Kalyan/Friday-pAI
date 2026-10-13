@@ -26,11 +26,14 @@ function App() {
     try {
       // Send conversation to Electron → NVIDIA → Nemotron
       const reply = await window.electronAPI.askAI(updatedMessages);
+      console.log("Frontend received reply:", reply);
+      console.log("Frontend reply length:", reply?.length);
 
       const aiMessage = {
         role: "assistant",
         content: reply,
       };
+      console.log("Adding assistant message to chat:", aiMessage);
 
       setMessages([...updatedMessages, aiMessage]);
     } catch (error) {

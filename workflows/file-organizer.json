@@ -1,0 +1,64 @@
+{
+  "successCriteria": [
+    "Files inspected",
+    "Organization plan prepared",
+    "Changes approved before execution"
+  ],
+  "steps": [
+    {
+      "approval": "none",
+      "action": "list",
+      "dependsOn": [],
+      "tool": "file_manager",
+      "id": "list_files"
+    },
+    {
+      "approval": "none",
+      "action": "info",
+      "dependsOn": [
+        "list_files"
+      ],
+      "tool": "file_manager",
+      "id": "inspect_files"
+    },
+    {
+      "approval": "none",
+      "dependsOn": [
+        "inspect_files"
+      ],
+      "tool": "llm_plan",
+      "id": "prepare_plan"
+    },
+    {
+      "approval": "required",
+      "dependsOn": [
+        "prepare_plan"
+      ],
+      "capabilityStatus": "not_implemented",
+      "tool": "file_manager_move",
+      "id": "apply_changes"
+    }
+  ],
+  "name": "File Organizer",
+  "inputs": [
+    {
+      "name": "directory",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "goal",
+      "type": "string",
+      "required": false
+    }
+  ],
+  "version": "1.0.0",
+  "id": "file-organizer",
+  "description": "Inspect project files and propose a safe organization plan.",
+  "allowedTools": [
+    "file_manager",
+    "llm_plan",
+    "file_manager_move"
+  ],
+  "status": "definition_only"
+}

@@ -11,6 +11,14 @@
     {
       "text": "The user is currently learning JavaScript",
       "category": "skills"
+    },
+    {
+      "text": "User has completed JavaScript and is moving on to AI and ML",
+      "category": "skills"
+    },
+    {
+      "text": "User has a new best friend named James Lee",
+      "category": "personal"
     }
   ]
 }

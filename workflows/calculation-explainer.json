@@ -1,0 +1,48 @@
+{
+  "successCriteria": [
+    "Calculation completed",
+    "Result checked",
+    "Explanation prepared"
+  ],
+  "steps": [
+    {
+      "approval": "none",
+      "dependsOn": [],
+      "tool": "calculator",
+      "id": "calculate"
+    },
+    {
+      "approval": "none",
+      "dependsOn": [
+        "calculate"
+      ],
+      "tool": "llm_verify_calculation",
+      "id": "verify"
+    },
+    {
+      "approval": "none",
+      "dependsOn": [
+        "verify"
+      ],
+      "tool": "llm_explain",
+      "id": "explain"
+    }
+  ],
+  "name": "Calculation Explainer",
+  "inputs": [
+    {
+      "name": "expression",
+      "type": "string",
+      "required": true
+    }
+  ],
+  "version": "1.0.0",
+  "id": "calculation-explainer",
+  "description": "Calculate an expression, verify the result, and explain the steps.",
+  "allowedTools": [
+    "calculator",
+    "llm_verify_calculation",
+    "llm_explain"
+  ],
+  "status": "definition_only"
+}

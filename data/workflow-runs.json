@@ -1,0 +1,72 @@
+[
+  {
+    "runId": "efba5a72-4be3-471c-a1c6-3e1579c86115",
+    "workflowId": "research-study",
+    "workflowVersion": "1.0.0",
+    "inputs": {
+      "topic": "Artificial intelligence",
+      "focus": "Personal assistants"
+    },
+    "status": "ready",
+    "createdAt": "2026-10-12T15:37:48.873Z",
+    "updatedAt": "2026-10-12T15:37:48.878Z",
+    "steps": [
+      {
+        "stepId": "search",
+        "tool": "web_search",
+        "state": "succeeded",
+        "attempts": 1,
+        "maxAttempts": 2,
+        "dependsOn": [],
+        "approval": "none",
+        "capabilityStatus": "available",
+        "result": {
+          "test": true
+        },
+        "error": null
+      },
+      {
+        "stepId": "summarize",
+        "tool": "llm_summarize",
+        "state": "pending",
+        "attempts": 0,
+        "maxAttempts": 2,
+        "dependsOn": [
+          "search"
+        ],
+        "approval": "none",
+        "capabilityStatus": "available",
+        "result": null,
+        "error": null
+      },
+      {
+        "stepId": "organize_notes",
+        "tool": "llm_format_notes",
+        "state": "pending",
+        "attempts": 0,
+        "maxAttempts": 2,
+        "dependsOn": [
+          "summarize"
+        ],
+        "approval": "none",
+        "capabilityStatus": "available",
+        "result": null,
+        "error": null
+      },
+      {
+        "stepId": "save_notes",
+        "tool": "save_notes",
+        "state": "pending",
+        "attempts": 0,
+        "maxAttempts": 2,
+        "dependsOn": [
+          "organize_notes"
+        ],
+        "approval": "required",
+        "capabilityStatus": "not_implemented",
+        "result": null,
+        "error": null
+      }
+    ]
+  }
+]

@@ -1,347 +1,562 @@
-
-const fs = require("node:fs");
+const goalManager = require("./goalManager.cjs");
+const dailyPlanner = require("./dailyPlanner.cjs");
 const path = require("node:path");
+const fs = require("node:fs");
 
-require("dotenv").config({
-  path: path.resolve(__dirname, "../../.env"),
-});
+const { calculate } = require("../../tools/calculator.cjs");
+const { getDateTime } = require("../../tools/dateTime.cjs");
+const { getSystemInfo } = require("../../tools/systemInfo.cjs");
+const { webSearch } = require("../../tools/websearch.cjs");
+const fileManager = require("../../tools/fileManager.cjs");
 
-const { executeTool } = require("./toolRegistry.cjs");
-const { loadWorkflow } = require("./workflowEngine.cjs");
+const PROJECT_ROOT = fs.realpathSync(
+  path.resolve(__dirname, "../..")
+);
 
-const NVIDIA_URL =
-  "https://integrate.api.nvidia.com/v1/chat/completions";
-
-const NVIDIA_MODEL = "nvidia/nemotron-3.5-lightning-30b-a3b";
-
-const SUPPORTED_TOOLS = new Set([
-  "calculator",
-  "date_time",
-  "system_info",
-  "web_search",
-  "file_manager",
-  "llm_summarize",
-  "llm_plan",
-  "llm_explain",
-  "llm_verify_calculation",
-  "llm_format_notes",
-  "save_notes",
+const BLOCKED_NAMES = new Set([
+  ".env",
+  ".env.local",
+  ".env.production",
+  ".env.development",
+  "credentials.json",
+  "secrets.json",
+  "id_rsa",
+  "id_ed25519",
 ]);
 
-function requireString(value, label) {
+function validateString(value, label, maxLength = 500) {
   if (typeof value !== "string" || !value.trim()) {
     throw new Error(`${label} must be a non-empty string.`);
+  }
+
+  if (value.length > maxLength) {
+    throw new Error(`${label} is too long.`);
   }
 
   return value.trim();
 }
 
-async function callNVIDIA(systemPrompt, userPrompt) {
-  if (!process.env.NVIDIA_API_KEY) {
-    throw new Error("NVIDIA_API_KEY is missing from .env.");
-  }
+function ensureSafePath(inputPath, { mustExist = true } = {}) {
+  const suppliedPath = validateString(inputPath, "Path", 1000);
 
-  const response = await fetch(NVIDIA_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${process.env.NVIDIA_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: NVIDIA_MODEL,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-      temperature: 0.3,
-      max_tokens: 1200,
-      chat_template_kwargs: {
-        enable_thinking: false,
-      },
-    }),
-    signal: AbortSignal.timeout(60000),
-  });
+  const absolutePath = path.resolve(
+    PROJECT_ROOT,
+    suppliedPath
+  );
 
-  if (!response.ok) {
-    const errorText = await response.text();
+  const relativePath = path.relative(
+    PROJECT_ROOT,
+    absolutePath
+  );
+
+  if (
+    relativePath === ".." ||
+    relativePath.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relativePath)
+  ) {
     throw new Error(
-      `NVIDIA API error (${response.status}): ${errorText.slice(0, 500)}`
+      "Access outside the project directory is not allowed."
     );
   }
 
-  const data = await response.json();
-  const answer = data.choices?.[0]?.message?.content;
-
-  if (typeof answer !== "string" || !answer.trim()) {
-    throw new Error("NVIDIA returned an empty response.");
+  if (
+    mustExist &&
+    !fs.existsSync(absolutePath)
+  ) {
+    throw new Error(
+      "The requested path does not exist."
+    );
   }
 
-  return answer.trim();
-}
+  if (mustExist) {
+    const realPath =
+      fs.realpathSync(absolutePath);
 
-function mapToolArguments(definition, context) {
-  const inputs = context.inputs || {};
+    const realRelative =
+      path.relative(
+        PROJECT_ROOT,
+        realPath
+      );
 
-  switch (definition.tool) {
-    case "calculator":
-      return {
-        expression: requireString(inputs.expression, "Expression"),
-      };
+    if (
+      realRelative === ".." ||
+      realRelative.startsWith(
+        `..${path.sep}`
+      ) ||
+      path.isAbsolute(realRelative)
+    ) {
+      throw new Error(
+        "The requested path resolves outside the project."
+      );
+    }
+  }
 
-    case "date_time":
-      return {};
+  const segments =
+    relativePath.split(path.sep);
 
-    case "system_info":
-      return {
-        query:
-          typeof inputs.check === "string" && inputs.check.trim()
-            ? inputs.check.trim()
-            : "all",
-      };
-
-    case "web_search": {
-      let query = inputs.query;
-
-      if (!query && inputs.topic) {
-        query = [inputs.topic, inputs.focus]
-          .filter(value => typeof value === "string" && value.trim())
-          .join(" ");
-      }
-
-      if (!query && Array.isArray(inputs.topics)) {
-        query = inputs.topics.join(", ");
-      }
-
-      if (!query) query = inputs.goal;
-
-      return {
-        query: requireString(query, "Search query"),
-      };
+  for (const segment of segments) {
+    if (
+      BLOCKED_NAMES.has(
+        segment.toLowerCase()
+      )
+    ) {
+      throw new Error(
+        "Access to this sensitive path is blocked."
+      );
     }
 
-    case "file_manager": {
-      const action = definition.action || "list";
-      const previousResults = context.previousResults || {};
-      const basePath =
-        inputs.directory ?? inputs.projectPath ?? inputs.path ?? ".";
+    if (
+      /\.(pem|key|p12|pfx)$/i.test(segment) ||
+      /^\.env(?:\.|$)/i.test(segment)
+    ) {
+      throw new Error(
+        "Access to this sensitive path is blocked."
+      );
+    }
+  }
+
+  return absolutePath;
+}
+
+function requireObject(args) {
+  if (
+    args === null ||
+    typeof args !== "object" ||
+    Array.isArray(args)
+  ) {
+    throw new Error(
+      "Tool arguments must be an object."
+    );
+  }
+
+  return args;
+}
+
+const toolDefinitions = {
+  calculator: {
+    description:
+      "Evaluate a mathematical expression.",
+
+    execute(args) {
+      requireObject(args);
+
+      const expression =
+        validateString(
+          args.expression,
+          "Expression",
+          300
+        );
+
+      return calculate(expression);
+    },
+  },
+
+  date_time: {
+    description:
+      "Get the current date and time.",
+
+    execute(args) {
+      requireObject(args);
+
+      return getDateTime();
+    },
+  },
+
+  system_info: {
+    description:
+      "Get computer system information.",
+
+    execute(args) {
+      requireObject(args);
+
+      const query =
+        args.query === undefined
+          ? "all"
+          : validateString(
+              args.query,
+              "Query",
+              100
+            );
+
+      return getSystemInfo(query);
+    },
+  },
+
+  web_search: {
+    description:
+      "Search the web for information.",
+
+    async execute(args) {
+      requireObject(args);
+
+      const query =
+        validateString(
+          args.query,
+          "Search query",
+          500
+        );
+
+      return await webSearch(query);
+    },
+  },
+
+  file_manager: {
+    description:
+      "Safely inspect files and folders within the project.",
+
+    execute(args) {
+      requireObject(args);
+
+      const action =
+        validateString(
+          args.action,
+          "File action",
+          30
+        );
 
       if (action === "list") {
-        return {
-          action,
-          path: requireString(basePath, "Directory"),
-        };
+        const target =
+          ensureSafePath(
+            args.path || "."
+          );
+
+        return fileManager.listFolder(
+          target
+        );
       }
 
       if (action === "find") {
-        return {
-          action,
-          path: requireString(basePath, "Directory"),
-          fileName: requireString(
-            inputs.fileName ?? definition.fileName,
-            "File name"
-          ),
-        };
-      }
+        const target =
+          ensureSafePath(
+            args.path || "."
+          );
 
-      if (action === "info") {
-        const listedFiles = previousResults.list_files;
+        const fileName =
+          validateString(
+            args.fileName,
+            "File name",
+            255
+          );
 
-        if (Array.isArray(listedFiles)) {
-          const blockedNames = new Set([
-            ".env",
-            ".env.local",
-            ".env.production",
-            ".env.development",
-            "credentials.json",
-            "secrets.json",
-            "id_rsa",
-            "id_ed25519",
-          ]);
-
-          const safeFiles = listedFiles.filter(item => {
-            if (!item || typeof item.path !== "string") {
-              return false;
-            }
-
-            const name = String(item.name || "").toLowerCase();
-
-            return (
-              !blockedNames.has(name) &&
-              !/^\.env(?:\.|$)/i.test(name) &&
-              !/\.(pem|key|p12|pfx)$/i.test(name)
-            );
-          });
-
-          const firstFile = safeFiles.find(item => item.type === "file");
-
-          if (firstFile) {
-            return {
-              action: "info",
-              path: firstFile.path,
-            };
-          }
-
-          throw new Error("No safe files were found to inspect.");
+        if (
+          fileName.includes("/") ||
+          fileName.includes("\\") ||
+          fileName === "." ||
+          fileName === ".."
+        ) {
+          throw new Error(
+            "Enter a file name, not a path."
+          );
         }
 
-        return {
-          action,
-          path: requireString(
-            inputs.filePath ?? definition.path,
-            "File path"
-          ),
-        };
+        const results =
+          fileManager.findFile(
+            target,
+            fileName
+          );
+
+        return results.map(
+          (result) =>
+            ensureSafePath(result)
+        );
       }
 
       if (action === "read") {
-        return {
-          action,
-          path: requireString(
-            inputs.filePath ?? definition.path,
-            "File path"
-          ),
-        };
+        const target =
+          ensureSafePath(args.path);
+
+        const stats =
+          fs.statSync(target);
+
+        if (!stats.isFile()) {
+          throw new Error(
+            "Only files can be read."
+          );
+        }
+
+        if (stats.size > 200_000) {
+          throw new Error(
+            "File is too large to read through this tool."
+          );
+        }
+
+        return fileManager.readFile(
+          target
+        );
       }
 
-      throw new Error(`Unsupported file action: ${action}`);
-    }
+      if (action === "info") {
+        const target =
+          ensureSafePath(args.path);
 
-    default:
-      throw new Error(`No argument mapping for tool: ${definition.tool}`);
-  }
-}
+        return fileManager.getFileInfo(
+          target
+        );
+      }
 
-async function executeAITool(toolName, context) {
-  const inputs = context.inputs || {};
-  const previousResults = context.previousResults || {};
-
-  const systemPrompts = {
-    llm_summarize:
-      "Summarize the supplied information accurately. Organize it with headings and key points. Do not invent facts or claim that unverified information is confirmed.",
-
-    llm_plan:
-      "Act as a careful project assistant. Create a practical, ordered plan based on the supplied goal and evidence. Clearly distinguish recommendations from facts. Do not claim to have changed any files.",
-
-    llm_explain:
-      "Explain the supplied calculation and its result in beginner-friendly language. Show the relevant steps. Do not change the calculated result.",
-
-    llm_verify_calculation:
-      "Independently check the supplied calculation. Explain whether the result appears correct. If the expression or evidence is insufficient, say so. Do not silently replace the calculator's result.",
-
-    llm_format_notes:
-      "Turn the supplied research into clear, organized study notes with headings, key findings, and useful takeaways. Preserve factual accuracy and mention gaps in the evidence.",
-  };
-
-  const prompt = [
-    `Workflow: ${context.workflowId}`,
-    `Task: ${toolName}`,
-    `User inputs:\n${JSON.stringify(inputs, null, 2)}`,
-    `Previous step results:\n${JSON.stringify(previousResults, null, 2)}`,
-    "Complete this task using only the supplied context and your knowledge. Be clear about uncertainty.",
-  ].join("\n\n");
-
-  const answer = await callNVIDIA(systemPrompts[toolName], prompt);
-
-  return {
-    success: true,
-    data: answer,
-  };
-}
-
-async function executeWorkflowTool(toolName, context = {}) {
-  try {
-    if (!SUPPORTED_TOOLS.has(toolName)) {
-      throw new Error(`Tool is not implemented: ${toolName}`);
-    }
-
-    if (!context.workflowId || !context.stepId) {
-      throw new Error("Workflow ID and step ID are required.");
-    }
-
-    const workflow = loadWorkflow(context.workflowId);
-
-    const definition = workflow.steps.find(
-      step => step.id === context.stepId
-    );
-
-    if (!definition || definition.tool !== toolName) {
       throw new Error(
-        "Workflow step definition does not match the requested tool."
+        "Unsupported file action. Allowed actions: list, find, read, info."
       );
-    }
+    },
+  },
 
-    if (toolName === "save_notes") {
-      const notes = context.previousResults?.organize_notes;
+  // ------------------------------------
+  // GOAL MANAGER
+  // ------------------------------------
 
-      if (typeof notes !== "string" || !notes.trim()) {
-        throw new Error("No research notes are available to save.");
+  goal_manager: {
+    description:
+      "Create, view, plan, and update persistent personal goals and tasks.",
+
+    execute(args) {
+      requireObject(args);
+
+      const action =
+        validateString(
+          args.action,
+          "Goal action",
+          30
+        );
+
+      if (action === "create_goal") {
+        const title =
+          validateString(
+            args.title,
+            "Goal title",
+            200
+          );
+
+        const description =
+          typeof args.description === "string"
+            ? args.description.trim()
+            : "";
+
+        return goalManager.createGoal(
+          title,
+          description
+        );
       }
 
-      const topic = String(context.inputs?.topic || "research");
-      const slug =
-        topic
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, "-")
-          .replace(/^-+|-+$/g, "")
-          .slice(0, 60) || "research";
+      if (action === "list_goals") {
+        return goalManager.getGoals();
+      }
 
-      const notesDirectory = path.resolve(
-        __dirname,
-        "../../data/notes"
+      if (action === "get_goal") {
+        const goalId =
+          validateString(
+            args.goalId,
+            "Goal ID",
+            100
+          );
+
+        return goalManager.getGoal(
+          goalId
+        );
+      }
+
+      if (action === "add_task") {
+        const goalId =
+          validateString(
+            args.goalId,
+            "Goal ID",
+            100
+          );
+
+        const title =
+          validateString(
+            args.title,
+            "Task title",
+            200
+          );
+
+        const description =
+          typeof args.description === "string"
+            ? args.description.trim()
+            : "";
+
+        const dueDate =
+          args.dueDate === undefined ||
+          args.dueDate === null
+            ? null
+            : validateString(
+                args.dueDate,
+                "Task due date",
+                100
+              );
+
+        const day =
+          args.day === undefined ||
+          args.day === null
+            ? null
+            : Number(args.day);
+
+        if (
+          day !== null &&
+          (
+            !Number.isInteger(day) ||
+            day < 1
+          )
+        ) {
+          throw new Error(
+            "Task day must be a positive integer."
+          );
+        }
+
+        return goalManager.addTask(
+          goalId,
+          title,
+          description,
+          dueDate,
+          day
+        );
+      }
+
+      if (action === "update_task") {
+        const goalId =
+          validateString(
+            args.goalId,
+            "Goal ID",
+            100
+          );
+
+        const taskId =
+          validateString(
+            args.taskId,
+            "Task ID",
+            100
+          );
+
+        const status =
+          validateString(
+            args.status,
+            "Task status",
+            30
+          );
+
+        return goalManager.updateTaskStatus(
+          goalId,
+          taskId,
+          status
+        );
+      }
+
+      if (action === "schedule_tasks") {
+        const goalId =
+          validateString(
+            args.goalId,
+            "Goal ID",
+            100
+          );
+
+        if (
+          !Array.isArray(
+            args.taskSchedule
+          )
+        ) {
+          throw new Error(
+            "Task schedule must be an array."
+          );
+        }
+
+        return goalManager.scheduleGoalTasks(
+          goalId,
+          args.taskSchedule
+        );
+      }
+
+      throw new Error(
+        "Unsupported goal action."
       );
+    },
+  },
 
-      fs.mkdirSync(notesDirectory, { recursive: true });
+  // ------------------------------------
+  // DAILY PLANNER
+  // ------------------------------------
 
-      const filePath = path.join(
-        notesDirectory,
-        `${slug}-${Date.now()}.md`
+  daily_planner: {
+    description:
+      "View today's tasks, overdue tasks, upcoming tasks, and active goal progress.",
+
+    execute(args) {
+      requireObject(args);
+
+      const action =
+        validateString(
+          args.action,
+          "Daily planner action",
+          30
+        );
+
+      if (
+        action === "get_today_plan"
+      ) {
+        return dailyPlanner.getTodayPlan();
+      }
+
+      throw new Error(
+        "Unsupported daily planner action."
       );
+    },
+  },
+};
 
-      fs.writeFileSync(
-        filePath,
-        `# Research Notes: ${topic}\n\n${notes.trim()}\n`,
-        { encoding: "utf8", flag: "wx" }
+function listTools() {
+  return Object.entries(
+    toolDefinitions
+  ).map(
+    ([name, definition]) => ({
+      name,
+      description:
+        definition.description,
+    })
+  );
+}
+
+async function executeTool(
+  name,
+  args = {}
+) {
+  try {
+    if (
+      typeof name !== "string" ||
+      !Object.hasOwn(
+        toolDefinitions,
+        name
+      )
+    ) {
+      throw new Error(
+        `Unknown or unavailable tool: ${String(name)}`
       );
-
-      return {
-        success: true,
-        data: {
-          message: "Research notes saved successfully.",
-          filePath: path.relative(
-            path.resolve(__dirname, "../.."),
-            filePath
-          ),
-        },
-      };
     }
 
-    if (toolName.startsWith("llm_")) {
-      return await executeAITool(toolName, context);
-    }
-
-    const args = mapToolArguments(definition, context);
-    const result = await executeTool(toolName, args);
-
-    if (!result || result.success !== true) {
-      throw new Error(result?.error || `${toolName} failed.`);
-    }
+    const result =
+      await toolDefinitions[
+        name
+      ].execute(args);
 
     return {
       success: true,
-      data: result.result,
+      tool: name,
+      result,
     };
   } catch (error) {
     return {
       success: false,
-      tool: toolName,
-      error: error.message || "Workflow tool execution failed.",
+      tool:
+        typeof name === "string"
+          ? name
+          : "unknown",
+      error:
+        error.message ||
+        "Tool execution failed.",
     };
   }
 }
 
 module.exports = {
-  mapToolArguments,
-  executeWorkflowTool,
+  listTools,
+  executeTool,
 };
 
 

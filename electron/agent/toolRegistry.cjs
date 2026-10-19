@@ -1,4 +1,6 @@
 
+const goalManager = require("./goalManager.cjs");
+const dailyPlanner = require("./dailyPlanner.cjs");
 const path = require("node:path");
 const fs = require("node:fs");
 
@@ -199,7 +201,144 @@ const toolDefinitions = {
       );
     },
   },
+
+  // ------------------------------------
+  // GOAL MANAGER
+  // ------------------------------------
+
+  goal_manager: {
+    description:
+      "Create, view, and update persistent personal goals and tasks.",
+
+    execute(args) {
+      requireObject(args);
+
+      const action = validateString(
+        args.action,
+        "Goal action",
+        30
+      );
+
+      if (action === "create_goal") {
+        const title = validateString(
+          args.title,
+          "Goal title",
+          200
+        );
+
+        const description =
+          typeof args.description === "string"
+            ? args.description.trim()
+            : "";
+
+        return goalManager.createGoal(
+          title,
+          description
+        );
+      }
+
+      if (action === "list_goals") {
+        return goalManager.getGoals();
+      }
+
+      if (action === "get_goal") {
+        const goalId = validateString(
+          args.goalId,
+          "Goal ID",
+          100
+        );
+
+        return goalManager.getGoal(
+          goalId
+        );
+      }
+
+      if (action === "add_task") {
+        const goalId = validateString(
+          args.goalId,
+          "Goal ID",
+          100
+        );
+
+        const title = validateString(
+          args.title,
+          "Task title",
+          200
+        );
+
+        const description =
+          typeof args.description === "string"
+            ? args.description.trim()
+            : "";
+
+        return goalManager.addTask(
+          goalId,
+          title,
+          description
+        );
+      }
+
+      if (action === "update_task") {
+        const goalId = validateString(
+          args.goalId,
+          "Goal ID",
+          100
+        );
+
+        const taskId = validateString(
+          args.taskId,
+          "Task ID",
+          100
+        );
+
+        const status = validateString(
+          args.status,
+          "Task status",
+          30
+        );
+
+        return goalManager.updateTaskStatus(
+          goalId,
+          taskId,
+          status
+        );
+      }
+
+      throw new Error(
+        "Unsupported goal action."
+      );
+    },
+    },
+
+  // ------------------------------------
+  // DAILY PLANNER
+  // ------------------------------------
+
+  daily_planner: {
+    description:
+      "View today's tasks, overdue tasks, upcoming tasks, and active goal progress.",
+
+    execute(args) {
+      requireObject(args);
+
+      const action = validateString(
+        args.action,
+        "Daily planner action",
+        30
+      );
+
+      if (action === "get_today_plan") {
+        return dailyPlanner.getTodayPlan();
+      }
+
+      throw new Error(
+        "Unsupported daily planner action."
+      );
+    },
+  },
 };
+  
+
 
 function listTools() {
   return Object.entries(toolDefinitions).map(([name, definition]) => ({
@@ -207,7 +346,6 @@ function listTools() {
     description: definition.description,
   }));
 }
-
 
 async function executeTool(name, args = {}) {
   try {
@@ -234,8 +372,8 @@ async function executeTool(name, args = {}) {
   }
 }
 
-
 module.exports = {
   listTools,
   executeTool,
 };
+

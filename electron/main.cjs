@@ -8,6 +8,26 @@ const {
   addMemory,
 } = require("./memory.cjs");
 
+// Persistent goals and tasks
+const goalManager =
+  require("./agent/goalManager.cjs");
+
+// Goal planning
+const {
+  generateGoalPlan,
+} = require("./agent/goalPlanner.cjs");
+
+// Goal date planning and plan validation
+const {
+  parseDuration,
+  calculateDeadline,
+  calculateTaskDueDate,
+} = require("./agent/datePlanner.cjs");
+
+const {
+  validateAndNormalizePlan,
+} = require("./agent/planValidator.cjs");
+
 // Web search
 const {
   webSearch,
@@ -42,16 +62,15 @@ require("dotenv").config({
   path: path.join(__dirname, "..", ".env"),
 });
 
+// Shared NVIDIA API client. Keep response formatting, template settings,
+// deterministic seed, and token limits compatible with existing calls.
+const { callAI } = require("./aiClient.cjs");
+
 
 // ========================================
-// CONFIGURATION
+// SHARED AI CLIENT
 // ========================================
-
-const NVIDIA_MODEL =
-  "nvidia/nemotron-3.5-lightning-30b-a3b";
-
-const NVIDIA_ENDPOINT =
-  "https://integrate.api.nvidia.com/v1/chat/completions";
+// callAI is loaded after .env configuration below.
 
 
 // ========================================
@@ -83,95 +102,6 @@ function createWindow() {
   win.loadURL(
     "http://localhost:5173"
   );
-}
-
-
-// ========================================
-// CALL NEMOTRON
-// ========================================
-
-async function callAI(
-  messages,
-  options = {}
-) {
-  const body = {
-    model: NVIDIA_MODEL,
-
-    messages,
-
-    temperature:
-      options.temperature ?? 0.7,
-
-    max_tokens:
-      options.max_tokens ?? 1024,
-
-    stream: false,
-  };
-
-
-  // Optional structured response mode
-  if (options.response_format) {
-    body.response_format =
-      options.response_format;
-  }
-
-
-  // Optional Nemotron chat-template settings
-  if (options.chat_template_kwargs) {
-    body.chat_template_kwargs =
-      options.chat_template_kwargs;
-  }
-
-
-  // Optional deterministic seed
-  if (options.seed !== undefined) {
-    body.seed = options.seed;
-  }
-
-
-  const response = await fetch(
-    NVIDIA_ENDPOINT,
-    {
-      method: "POST",
-
-      headers: {
-        "Content-Type": "application/json",
-
-        Authorization:
-          `Bearer ${process.env.NVIDIA_API_KEY}`,
-      },
-
-      body: JSON.stringify(body),
-    }
-  );
-
-
-  if (!response.ok) {
-    const errorText =
-      await response.text();
-
-    throw new Error(
-      `NVIDIA API error: ${errorText}`
-    );
-  }
-
-
-  const data =
-    await response.json();
-
-
-  const answer =
-    data.choices?.[0]?.message?.content;
-
-
-  if (!answer) {
-    throw new Error(
-      "NVIDIA returned an empty response."
-    );
-  }
-
-
-  return answer;
 }
 
 
@@ -319,7 +249,45 @@ Examples:
 - What files are in the tools folder?
 
 
-6. none
+6. goal_manager
+Use when the user wants to create, view, or update persistent goals and tasks stored by this personal assistant.
+
+Available actions:
+- create_goal: create a persistent goal.
+- list_goals: list all saved goals.
+- get_goal: retrieve one goal by its exact goal ID.
+- add_task: add a task to a goal by its exact goal ID.
+- update_task: update a task using its exact goal ID, task ID, and status.
+- plan_goal: generate a structured plan for an existing goal and save the generated tasks.
+
+Use for requests such as:
+- Create a goal to learn Node.js.
+- What are my current goals?
+- Show details for goal goal-123.
+- Add a task to goal goal-123.
+- Mark task task-123 in goal goal-123 as completed.
+- Make a plan for my Learn Python goal.
+
+For this tool, "input" MUST be a JSON-encoded string containing the required arguments.
+Use these formats:
+- create_goal: {"title":"Learn Node.js","description":"Optional description","deadline":"Optional ISO date"}
+- list_goals: {}
+- get_goal: {"goalId":"goal-123"}
+- add_task: {"goalId":"goal-123","title":"Practice APIs","description":"Optional description"}
+- update_task: {"goalId":"goal-123","taskId":"task-123","status":"completed"}
+- plan_goal: {"title":"Learn Python"}
+- plan_goal: {"goalId":"goal-123"}
+
+Examples:
+User: "Create a goal to learn Node.js."
+{"tool":"goal_manager","action":"create_goal","input":"{\\\"title\\\":\\\"Learn Node.js\\\",\\\"description\\\":\\\"\\\"}"}
+
+User: "What are my goals?"
+{"tool":"goal_manager","action":"list_goals","input":"{}"}
+
+Do NOT use goal_manager for general advice, explanations, or temporary plans that the user has not asked to save.
+
+7. none
 Use when no tool is required.
 
 Examples:
@@ -340,6 +308,10 @@ IMPORTANT SEMANTIC RULES:
 - If the user asks about their own computer, prefer system_info over web_search.
 - If the user asks to calculate a number, use calculator.
 - If the user asks for an explanation rather than a calculation, use none.
+- If the user explicitly wants to create, list, inspect, or update a persistent goal or task, use goal_manager.
+- Use goal_manager for persistent goal/task changes, not merely for general study advice or a one-time unsaved plan.
+- For plan_goal, prefer the existing goal's exact title in the input. Only use goalId when the user explicitly provides an exact goal ID.
+- Never invent or guess a goal ID. If the user names a goal, use its title and let the application resolve the real stored ID.
 - Never use web_search when a local tool can answer the question.
 - Never use calculator to answer conceptual questions.
 - Never use system_info for general computer questions that are not about the user's machine.
@@ -366,6 +338,7 @@ date_time
 calculator
 system_info
 file_manager
+goal_manager
 none
 
 Allowed actions:
@@ -388,6 +361,14 @@ file_manager:
   list
   info
   find
+
+goal_manager:
+  create_goal
+  list_goals
+  get_goal
+  add_task
+  update_task
+  plan_goal
 
 none:
   none
@@ -585,6 +566,7 @@ function parseToolDecision(
     "calculator",
     "system_info",
     "file_manager",
+    "goal_manager",
     "none",
   ];
 
@@ -623,6 +605,15 @@ function parseToolDecision(
       "list",
       "info",
       "find",
+    ],
+
+    goal_manager: [
+      "create_goal",
+      "list_goals",
+      "get_goal",
+      "add_task",
+      "update_task",
+      "plan_goal",
     ],
 
     none: [
@@ -781,6 +772,18 @@ function formatToolResult(
   }
 
 
+  if (
+    toolDecision.tool ===
+    "goal_manager"
+  ) {
+    return JSON.stringify(
+      result,
+      null,
+      2
+    );
+  }
+
+
   return String(result);
 }
 
@@ -856,7 +859,8 @@ function isSensitiveFile(
 // ========================================
 
 async function executeTool(
-  toolDecision
+  toolDecision,
+  messages = []
 ) {
   switch (
   toolDecision.tool
@@ -1171,6 +1175,323 @@ async function executeTool(
 
 
     // ------------------------------------
+    // GOAL MANAGER
+    // ------------------------------------
+
+    case "goal_manager": {
+      try {
+        let goalInput;
+
+        try {
+          goalInput = JSON.parse(
+            toolDecision.input || "{}"
+          );
+        } catch {
+          throw new Error(
+            "Goal manager received invalid JSON input."
+          );
+        }
+
+        if (
+          goalInput === null ||
+          typeof goalInput !== "object" ||
+          Array.isArray(goalInput)
+        ) {
+          throw new Error(
+            "Goal manager input must be a JSON object."
+          );
+        }
+
+        let result;
+
+        if (
+          toolDecision.action === "create_goal"
+        ) {
+          if (
+            typeof goalInput.title !== "string" ||
+            !goalInput.title.trim()
+          ) {
+            throw new Error("Goal title is required.");
+          }
+
+          const goalDescription =
+            typeof goalInput.description === "string"
+              ? goalInput.description.trim()
+              : "";
+
+          // Convert a supported natural-language duration such as
+          // "in 2 weeks" into a real deadline. If no duration is
+          // present, keep the deadline optional.
+          let deadline = null;
+
+          if (
+            typeof goalInput.deadline === "string" &&
+            goalInput.deadline.trim()
+          ) {
+            const explicitDeadline =
+              new Date(goalInput.deadline.trim());
+
+            if (
+              Number.isNaN(explicitDeadline.getTime())
+            ) {
+              throw new Error("Goal deadline must be a valid date.");
+            }
+
+            deadline = explicitDeadline.toISOString();
+          } else {
+            const durationDays =
+              parseDuration(goalDescription);
+
+            if (durationDays) {
+              deadline = calculateDeadline(
+                new Date(),
+                durationDays
+              ).toISOString();
+            }
+          }
+
+          result = goalManager.createGoal(
+            goalInput.title.trim(),
+            goalDescription,
+            deadline
+          );
+        } else if (
+          toolDecision.action === "list_goals"
+        ) {
+          result = goalManager.getGoals();
+        } else if (
+          toolDecision.action === "get_goal"
+        ) {
+          if (
+            typeof goalInput.goalId !== "string" ||
+            !goalInput.goalId.trim()
+          ) {
+            throw new Error("Goal ID is required.");
+          }
+
+          result = goalManager.getGoal(
+            goalInput.goalId.trim()
+          );
+        } else if (
+          toolDecision.action === "add_task"
+        ) {
+          if (
+            typeof goalInput.goalId !== "string" ||
+            !goalInput.goalId.trim()
+          ) {
+            throw new Error("Goal ID is required.");
+          }
+
+          if (
+            typeof goalInput.title !== "string" ||
+            !goalInput.title.trim()
+          ) {
+            throw new Error("Task title is required.");
+          }
+
+          result = goalManager.addTask(
+            goalInput.goalId.trim(),
+            goalInput.title.trim(),
+            typeof goalInput.description === "string"
+              ? goalInput.description.trim()
+              : ""
+          );
+        } else if (
+          toolDecision.action === "update_task"
+        ) {
+          if (
+            typeof goalInput.goalId !== "string" ||
+            !goalInput.goalId.trim()
+          ) {
+            throw new Error("Goal ID is required.");
+          }
+
+          if (
+            typeof goalInput.taskId !== "string" ||
+            !goalInput.taskId.trim()
+          ) {
+            throw new Error("Task ID is required.");
+          }
+
+          if (
+            typeof goalInput.status !== "string" ||
+            !goalInput.status.trim()
+          ) {
+            throw new Error("Task status is required.");
+          }
+
+          result = goalManager.updateTaskStatus(
+            goalInput.goalId.trim(),
+            goalInput.taskId.trim(),
+            goalInput.status.trim()
+          );
+        } else if (
+          toolDecision.action === "plan_goal"
+        ) {
+          let goal = null;
+
+          if (
+            typeof goalInput.goalId === "string" &&
+            goalInput.goalId.trim()
+          ) {
+            goal = goalManager.getGoal(
+              goalInput.goalId.trim()
+            );
+          }
+
+          // The model must never be trusted to invent a goal ID.
+          // If it supplied an invalid ID, try to recover using the
+          // user's actual goal title from the current request.
+          if (!goal) {
+            const goals = goalManager.getGoals();
+
+            let requestedTitle =
+              typeof goalInput.title === "string"
+                ? goalInput.title.trim()
+                : "";
+
+            if (!requestedTitle) {
+              const userMessages = Array.isArray(messages)
+                ? messages.filter(
+                    (message) => message.role === "user"
+                  )
+                : [];
+
+              const latestUserMessage =
+                userMessages[userMessages.length - 1];
+
+              const latestContent =
+                latestUserMessage &&
+                typeof latestUserMessage.content === "string"
+                  ? latestUserMessage.content.trim().toLowerCase()
+                  : "";
+
+              if (latestContent) {
+                const matchingGoals = goals.filter(
+                  (item) =>
+                    typeof item.title === "string" &&
+                    latestContent.includes(
+                      item.title.trim().toLowerCase()
+                    )
+                );
+
+                if (matchingGoals.length === 1) {
+                  requestedTitle =
+                    matchingGoals[0].title.trim();
+                }
+              }
+            }
+
+            if (requestedTitle) {
+              const normalizedTitle =
+                requestedTitle.toLowerCase();
+
+              goal = goals.find(
+                (item) =>
+                  typeof item.title === "string" &&
+                  item.title.trim().toLowerCase() ===
+                    normalizedTitle
+              );
+            }
+          }
+
+          if (!goal) {
+            throw new Error(
+              "Goal not found. Provide the goalId or an existing goal title."
+            );
+          }
+
+          const plannedTasks =
+            await generateGoalPlan(goal);
+
+          // Validate and normalize the planner output before
+          // anything is written to persistent storage.
+          let durationDays = null;
+
+          if (goal.deadline) {
+            const startDate = new Date(goal.createdAt);
+            const deadlineDate = new Date(goal.deadline);
+
+            if (
+              !Number.isNaN(startDate.getTime()) &&
+              !Number.isNaN(deadlineDate.getTime())
+            ) {
+              durationDays = Math.max(
+                1,
+                Math.ceil(
+                  (deadlineDate.getTime() - startDate.getTime()) /
+                    (24 * 60 * 60 * 1000)
+                )
+              );
+            }
+          }
+
+          const normalizedTasks =
+            validateAndNormalizePlan(
+              plannedTasks,
+              durationDays
+            );
+
+          const savedTasks = [];
+
+          const planStartDate =
+            new Date(goal.createdAt);
+
+          for (const task of normalizedTasks) {
+            let dueDate = null;
+
+            if (!Number.isNaN(planStartDate.getTime())) {
+              dueDate =
+                calculateTaskDueDate(
+                  planStartDate,
+                  task.day
+                ).toISOString();
+            }
+
+            const savedTask = goalManager.addTask(
+              goal.id,
+              task.title,
+              task.description,
+              dueDate
+            );
+
+            // Keep the planning day visible in the returned result.
+            savedTask.day = task.day;
+
+            savedTasks.push(savedTask);
+          }
+
+          result = {
+            goalId: goal.id,
+            goalTitle: goal.title,
+            deadline: goal.deadline || null,
+            tasks: savedTasks,
+          };
+        } else {
+          throw new Error(
+            `Unknown goal manager action: ${toolDecision.action}`
+          );
+        }
+
+        return {
+          success: true,
+          result: formatToolResult(
+            toolDecision,
+            result
+          ),
+        };
+      } catch (error) {
+        console.error("Goal manager error:", error);
+
+        return {
+          success: false,
+          result: `Goal manager error: ${error.message}`,
+        };
+      }
+    }
+
+
+    // ------------------------------------
     // NONE
     // ------------------------------------
 
@@ -1374,7 +1695,8 @@ ipcMain.handle(
 
       const toolExecution =
         await executeTool(
-          toolDecision
+          toolDecision,
+          messages
         );
 
 
@@ -1385,7 +1707,20 @@ ipcMain.handle(
 
 
       // ------------------------------------
-      // 5. BUILD SYSTEM MESSAGE
+      // 5. HANDLE FAILED PERSISTENT GOAL ACTIONS
+      // ------------------------------------
+      // Do not let the final model turn a failed goal operation
+      // into a false claim that something was created or saved.
+      if (
+        toolDecision.tool === "goal_manager" &&
+        !toolExecution.success &&
+        toolDecision.action === "plan_goal"
+      ) {
+        return toolExecution.result;
+      }
+
+      // ------------------------------------
+      // 6. BUILD SYSTEM MESSAGE
       // ------------------------------------
 
       let systemContent = `
@@ -1420,7 +1755,7 @@ Do not invent information that is not contained in the tool result.
 
 
       // ------------------------------------
-      // 6. ADD TOOL RESULT
+      // 7. ADD TOOL RESULT
       // ------------------------------------
 
       if (
@@ -1449,7 +1784,7 @@ ${toolExecution.result}
 
 
       // ------------------------------------
-      // 7. BUILD FINAL CONVERSATION
+      // 8. BUILD FINAL CONVERSATION
       // ------------------------------------
 
       const systemMessage = {
@@ -1467,7 +1802,7 @@ ${toolExecution.result}
 
 
       // ------------------------------------
-      // 8. FINAL NEMOTRON RESPONSE
+      // 9. FINAL NEMOTRON RESPONSE
       // ------------------------------------
       //
       // Normal answering mode.
@@ -1490,7 +1825,7 @@ ${toolExecution.result}
 
 
       // ------------------------------------
-      // 9. SAVE NEW MEMORY
+      // 10. SAVE NEW MEMORY
       // ------------------------------------
 
       try {
@@ -1533,7 +1868,7 @@ ${toolExecution.result}
 
 
       // ------------------------------------
-      // 10. RETURN ANSWER
+      // 11. RETURN ANSWER
       // ------------------------------------
 
       return answer;
